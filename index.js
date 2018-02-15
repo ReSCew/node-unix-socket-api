@@ -4,26 +4,40 @@ const chalk = require('chalk');
 const uuid = require('uuid');
 
 const MAX_TIMEOUT = socketConfig.get('answerTimeoutSec') * 1000;
+const NEXT_SEND_TIMEOUT = 2000;
+const ITEMS_QTY = 1;
+
+let theFirstSend = true;
+let connected = false;
 
 let pool = {};
 let resolveTimeout = null;
+let nextSendTimeout = null;
 
 function getUnresolved() {
     return Object.values(pool).filter(it => !it.status.resolved);
 }
 
 function resolveAll() {
+    resolveTimeout = null;
+
     getUnresolved().forEach(job => {
         job.status.resolved = true;
         job.status.message = 'Timeout, no answer';
     });
     print();
-    send();
+    pool = {};
+
+
+    if (connected) {
+        nextSendTimeout = setTimeout(send, NEXT_SEND_TIMEOUT);
+    }
 }
 
 function send() {
+    nextSendTimeout = null;
     pool = {};
-    for (let i = 0; i < Math.random() * 4 + 2; i++) {
+    for (let i = 0; i < ITEMS_QTY; i++) {
         const msg = {
             payload: {
                 id: uuid.v4(),
@@ -39,7 +53,7 @@ function send() {
     }
 
     sendMessage(Object.values(pool).map(it => it.payload));
-    setTimeout(resolveAll, MAX_TIMEOUT);
+    resolveTimeout = setTimeout(resolveAll, MAX_TIMEOUT);
     print();
 }
 
@@ -56,18 +70,17 @@ function print() {
 }
 
 function handleMessage(msg) {
-
-    console.log('Got socket message: ', msg);
+    console.log(chalk.blue('Got socket message: '), msg);
 
     if (!msg.id || !msg.result || !msg.result.hasOwnProperty('code')) {
-        return console.error('Unexpected message format');
+        return console.error(chalk.red('Unexpected message format'));
     }
 
     const {id, result} = msg;
 
     const job = pool[id];
     if (!job) {
-        return console.error(`Job ${id} not found`)
+        return console.error(chalk.red(`Job ${id} not found`));
     }
 
     job.status = {
@@ -76,32 +89,72 @@ function handleMessage(msg) {
         resolved: true
     };
 
-    print();
-
     if (getUnresolved().length === 0) {
         clearTimeout(resolveTimeout);
-        send();
+        resolveAll();
+    } else {
+        print();
     }
 }
 
+// general IPC config
 ipc.config.rawBuffer = true;
 
+// Init client
+function handleClientError() {
+    connected = false;
+    if (nextSendTimeout) {
+        clearTimeout(nextSendTimeout);
+        nextSendTimeout = null;
+    }
+
+    if (resolveTimeout) {
+        resolveAll();
+    }
+}
+
 ipc.connectTo('push', socketConfig.get('push'), function () {
-    ipc.of.push.on(
-        'connect',
-        function () {
-            console.log('Connected to the GoSocket, sending first packet...');
-            send();
+    ipc.of.push.on('connect', () => {
+            console.log(chalk.green('Connected to the GoSocket'));
+            if (!connected) {
+                if (theFirstSend) {
+                    theFirstSend = false;
+                    send();
+                } else {
+                    console.log(chalk.yellow('Not the first time, sending delayed'));
+                    setTimeout(send, NEXT_SEND_TIMEOUT);
+                }
+
+            }
+
+            connected = true;
+        }
+    );
+
+    ipc.of.push.on('disconnect', () => {
+            console.log(chalk.red('Disconnected from Go Socket :('));
+            handleClientError();
+        }
+    );
+
+    ipc.of.push.on('error', err => {
+            console.log(chalk.red('Got socket error'), err);
+            handleClientError();
         }
     );
 });
 
-ipc.serve(socketConfig.get('result'), function () {
-    ipc.server.on(
-        'data',
-        function (data, socket) {
+function sendMessage(data) {
+    ipc.of.push.emit(JSON.stringify(data))
+}
+
+// Init server
+ipc.serve(socketConfig.get('result'), () => {
+    console.log(chalk.green('Result socket listener started'));
+
+    ipc.server.on('data', (data, socket) => {
             const json = String(data);
-            console.log('Got message: ', json);
+            console.log(chalk.green('Got message: '), json);
 
             try {
                 handleMessage(JSON.parse(json));
@@ -112,8 +165,3 @@ ipc.serve(socketConfig.get('result'), function () {
     );
 });
 ipc.server.start();
-
-
-function sendMessage(data) {
-    ipc.of.push.emit(JSON.stringify(data))
-}
