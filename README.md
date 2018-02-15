@@ -10,5 +10,7 @@ npm i
 npm start
 ```
 
+See input and output format examples in `examples/` dir.
+
 ### Configuration
 Config file: `config/default.js`
