@@ -6,6 +6,7 @@ const uuid = require('uuid');
 const MAX_TIMEOUT = socketConfig.get('answerTimeoutSec') * 1000;
 const NEXT_SEND_TIMEOUT = 2000;
 const ITEMS_QTY = 1;
+const DELIMITER = '\n';
 
 let theFirstSend = true;
 let connected = false;
@@ -157,7 +158,7 @@ ipc.serve(socketConfig.get('result'), () => {
             console.log(chalk.green('Got message: '), json);
 
             try {
-                handleMessage(JSON.parse(json));
+                handleMessage(`${JSON.parse(json)}${DELIMITER}`);
             } catch (e) {
                 console.error(e);
             }
