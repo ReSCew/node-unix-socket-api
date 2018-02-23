@@ -146,7 +146,7 @@ ipc.connectTo('push', socketConfig.get('push'), function () {
 });
 
 function sendMessage(data) {
-    ipc.of.push.emit(JSON.stringify(data))
+    ipc.of.push.emit(`${JSON.stringify(data)}${DELIMITER}`)
 }
 
 // Init server
@@ -158,7 +158,7 @@ ipc.serve(socketConfig.get('result'), () => {
             console.log(chalk.green('Got message: '), json);
 
             try {
-                handleMessage(`${JSON.parse(json)}${DELIMITER}`);
+                handleMessage(JSON.parse(json));
             } catch (e) {
                 console.error(e);
             }
